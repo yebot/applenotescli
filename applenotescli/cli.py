@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 
 from . import __version__
 from . import db
+from . import applescript
+from . import convert
 
 
 def format_date(timestamp: float | None) -> str:
@@ -188,10 +190,40 @@ def folders():
 
 @cli.command()
 @click.argument("title")
+@click.option("--body", "-b", help="Note body (Markdown format)")
 @click.option("--folder", "-f", default="Notes", help="Folder to create note in")
-def create(title: str, folder: str):
-    """Create a new note."""
-    click.echo(f"Creating note '{title}' in folder '{folder}' (not yet implemented)")
+@click.option("--account", "-a", help="Account name (default: first account)")
+def create(title: str, body: str | None, folder: str, account: str | None):
+    """Create a new note.
+
+    Body can be provided via --body option or piped from stdin.
+    Markdown formatting is supported and will be converted to HTML.
+    """
+    import sys
+
+    # Get body from option or stdin
+    if body is None:
+        if not sys.stdin.isatty():
+            body = sys.stdin.read()
+        else:
+            body = ""
+
+    # Convert Markdown to HTML
+    html_body = convert.markdown_to_html(body) if body else ""
+
+    try:
+        note_id = applescript.create_note(
+            title=title,
+            body=html_body,
+            folder=folder,
+            account=account
+        )
+        click.echo(f"Created note '{title}' (ID: {note_id})")
+
+    except applescript.AppleScriptPermissionError as e:
+        raise click.ClickException(str(e))
+    except applescript.AppleScriptExecutionError as e:
+        raise click.ClickException(str(e))
 
 
 @cli.command()

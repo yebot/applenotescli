@@ -72,19 +72,39 @@ def run_applescript(script: str) -> str:
         ) from e
 
 
-def create_note(title: str, body: str, folder: str = "Notes") -> str:
-    """Create a new note in the specified folder."""
+def create_note(title: str, body: str, folder: str = "Notes", account: str | None = None) -> str:
+    """Create a new note in the specified folder and account.
+
+    Args:
+        title: The note title
+        body: The note body (HTML format)
+        folder: The folder name (default: "Notes")
+        account: The account name (default: None for default account)
+
+    Returns:
+        The ID of the created note
+    """
     title_escaped = escape_for_applescript(title)
     body_escaped = escape_for_applescript(body)
     folder_escaped = escape_for_applescript(folder)
 
-    script = f'''
-    tell application "Notes"
-        tell folder "{folder_escaped}"
-            make new note with properties {{name:"{title_escaped}", body:"{body_escaped}"}}
+    if account:
+        account_escaped = escape_for_applescript(account)
+        script = f'''
+        tell application "Notes"
+            tell account "{account_escaped}"
+                set newNote to make new note at folder "{folder_escaped}" with properties {{name:"{title_escaped}", body:"{body_escaped}"}}
+                return id of newNote
+            end tell
         end tell
-    end tell
-    '''
+        '''
+    else:
+        script = f'''
+        tell application "Notes"
+            set newNote to make new note at folder "{folder_escaped}" with properties {{name:"{title_escaped}", body:"{body_escaped}"}}
+            return id of newNote
+        end tell
+        '''
 
     return run_applescript(script)
 
