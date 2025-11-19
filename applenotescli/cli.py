@@ -149,6 +149,44 @@ def show(identifier: str):
 
 
 @cli.command()
+def folders():
+    """List all folders."""
+    try:
+        folders_list = db.list_folders()
+
+        if not folders_list:
+            click.echo("No folders found.")
+            return
+
+        # Group by account
+        accounts = {}
+        for folder in folders_list:
+            account = folder.get("account") or "Unknown"
+            # Clean up account name (remove leading numbers like "1_")
+            if account.startswith("1_"):
+                account = account[2:]
+            if account not in accounts:
+                accounts[account] = []
+            accounts[account].append(folder)
+
+        for account, folder_items in accounts.items():
+            click.echo(f"\n{account}:")
+            for folder in folder_items:
+                title = folder.get("title") or "(Untitled)"
+                click.echo(f"  {folder['id']:<6} {title}")
+
+        total = sum(len(f) for f in accounts.values())
+        click.echo(f"\nTotal: {total} folders")
+
+    except db.DatabaseNotFoundError as e:
+        raise click.ClickException(str(e))
+    except db.DatabaseLockedError as e:
+        raise click.ClickException(str(e))
+    except db.NotesDBError as e:
+        raise click.ClickException(f"Database error: {e}")
+
+
+@cli.command()
 @click.argument("title")
 @click.option("--folder", "-f", default="Notes", help="Folder to create note in")
 def create(title: str, folder: str):

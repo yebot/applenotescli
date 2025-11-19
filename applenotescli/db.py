@@ -160,7 +160,7 @@ def list_notes() -> list[dict]:
         n.ZIDENTIFIER as identifier,
         n.ZMODIFICATIONDATE as modified,
         n.ZCREATIONDATE as created,
-        f.ZTITLE as folder
+        f.ZTITLE2 as folder
     FROM ZICCLOUDSYNCINGOBJECT n
     LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
     WHERE n.ZNOTEDATA IS NOT NULL
@@ -189,7 +189,7 @@ def get_note_by_title(title: str) -> dict | None:
         n.ZIDENTIFIER as identifier,
         n.ZMODIFICATIONDATE as modified,
         n.ZCREATIONDATE as created,
-        f.ZTITLE as folder,
+        f.ZTITLE2 as folder,
         nd.ZDATA as data
     FROM ZICCLOUDSYNCINGOBJECT n
     LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
@@ -219,7 +219,7 @@ def get_note_by_id(note_id: int) -> dict | None:
         n.ZIDENTIFIER as identifier,
         n.ZMODIFICATIONDATE as modified,
         n.ZCREATIONDATE as created,
-        f.ZTITLE as folder,
+        f.ZTITLE2 as folder,
         nd.ZDATA as data
     FROM ZICCLOUDSYNCINGOBJECT n
     LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
@@ -256,7 +256,7 @@ def search_notes(query: str, title_only: bool = False) -> list[dict]:
             n.ZIDENTIFIER as identifier,
             n.ZMODIFICATIONDATE as modified,
             n.ZCREATIONDATE as created,
-            f.ZTITLE as folder
+            f.ZTITLE2 as folder
         FROM ZICCLOUDSYNCINGOBJECT n
         LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
         WHERE n.ZNOTEDATA IS NOT NULL
@@ -275,7 +275,7 @@ def search_notes(query: str, title_only: bool = False) -> list[dict]:
             n.ZIDENTIFIER as identifier,
             n.ZMODIFICATIONDATE as modified,
             n.ZCREATIONDATE as created,
-            f.ZTITLE as folder,
+            f.ZTITLE2 as folder,
             nd.ZDATA as data
         FROM ZICCLOUDSYNCINGOBJECT n
         LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
@@ -309,21 +309,42 @@ def search_notes(query: str, title_only: bool = False) -> list[dict]:
 
 
 def list_folders() -> list[dict]:
-    """List all folders."""
+    """List all folders with account information."""
     conn = get_connection()
     cursor = conn.cursor()
 
     query = """
     SELECT
         Z_PK as id,
-        ZTITLE as title,
-        ZIDENTIFIER as identifier
+        ZTITLE2 as title,
+        ZIDENTIFIER as identifier,
+        ZACCOUNTNAMEFORACCOUNTLISTSORTING as account
     FROM ZICCLOUDSYNCINGOBJECT
-    WHERE ZTITLE IS NOT NULL
-    AND ZFOLDER IS NULL
-    AND ZMARKEDFORDELETION = 0
+    WHERE ZMARKEDFORDELETION = 0
     AND Z_PK IN (SELECT DISTINCT ZFOLDER FROM ZICCLOUDSYNCINGOBJECT WHERE ZFOLDER IS NOT NULL)
-    ORDER BY ZTITLE
+    ORDER BY ZACCOUNTNAMEFORACCOUNTLISTSORTING, ZTITLE2
+    """
+
+    cursor.execute(query)
+    results = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+
+    return results
+
+
+def list_accounts() -> list[dict]:
+    """List all accounts."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = """
+    SELECT DISTINCT
+        ZACCOUNTNAMEFORACCOUNTLISTSORTING as name,
+        ZACCOUNTTYPE as type
+    FROM ZICCLOUDSYNCINGOBJECT
+    WHERE ZACCOUNTNAMEFORACCOUNTLISTSORTING IS NOT NULL
+    AND ZACCOUNTTYPE IS NOT NULL
+    ORDER BY ZACCOUNTNAMEFORACCOUNTLISTSORTING
     """
 
     cursor.execute(query)
