@@ -1,6 +1,7 @@
 """SQLite read layer for Apple Notes database."""
 
 import gzip
+import re
 import sqlite3
 from pathlib import Path
 
@@ -53,11 +54,15 @@ def get_connection() -> sqlite3.Connection:
         raise NotesDBError(f"Database error: {e}") from e
 
 
-def extract_text_from_note_data(data: bytes) -> str:
+def extract_text_from_note_data(data: bytes, for_display: bool = False) -> str:
     """Extract plain text from compressed note data.
 
     Apple Notes stores content as gzip-compressed protobuf.
-    This extracts readable text for searching.
+    This extracts readable text for searching or display.
+
+    Args:
+        data: Gzip-compressed protobuf note data
+        for_display: If True, preserve newlines and replace U+FFFC with [Attachment]
     """
     if not data:
         return ""
@@ -92,7 +97,55 @@ def extract_text_from_note_data(data: bytes) -> str:
         except Exception:
             pass
 
-    return " ".join(text_parts)
+    if for_display:
+        # UUID pattern for attachment references
+        uuid_pattern = re.compile(
+            r"^[\$]?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        )
+
+        # First, split all parts by newlines to get individual lines
+        all_lines = []
+        for part in text_parts:
+            all_lines.extend(part.split("\n"))
+
+        # Filter out protobuf metadata noise for display
+        filtered_lines = []
+        junk_count = 0
+        for line in all_lines:
+            # Skip common metadata patterns
+            stripped = line.strip()
+            if not stripped:
+                continue
+            # Skip font names
+            if stripped in ("Helvetica", "Helvetica Neue", "SF Pro"):
+                continue
+            # Skip UUIDs (attachment references)
+            if uuid_pattern.match(stripped):
+                continue
+            # Skip UTI type identifiers
+            if stripped.startswith("public.") or stripped.startswith("com.apple."):
+                continue
+            # Skip short binary-looking sequences
+            # Only filter if short AND not mostly alphabetic (need > half letters)
+            if len(stripped) <= 10:
+                alpha_chars = sum(1 for c in stripped if c.isalpha())
+                if alpha_chars <= len(stripped) / 2:
+                    junk_count += 1
+                    if junk_count > 3:
+                        # Stop when we hit too much consecutive junk
+                        break
+                    continue
+            junk_count = 0
+            filtered_lines.append(line)
+
+        # Join with newlines for readable display
+        text = "\n".join(filtered_lines)
+        # Replace U+FFFC (object replacement character) with placeholder
+        text = text.replace("\ufffc", "[Attachment]")
+        return text.strip()
+    else:
+        # Join with spaces for search
+        return " ".join(text_parts)
 
 
 def list_notes() -> list[dict]:
@@ -146,6 +199,36 @@ def get_note_by_title(title: str) -> dict | None:
     """
 
     cursor.execute(query, (title, title))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        return dict(row)
+    return None
+
+
+def get_note_by_id(note_id: int) -> dict | None:
+    """Get a note by its ID."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    query = """
+    SELECT
+        n.Z_PK as id,
+        COALESCE(n.ZTITLE1, n.ZTITLE, n.ZSNIPPET) as title,
+        n.ZIDENTIFIER as identifier,
+        n.ZMODIFICATIONDATE as modified,
+        n.ZCREATIONDATE as created,
+        f.ZTITLE as folder,
+        nd.ZDATA as data
+    FROM ZICCLOUDSYNCINGOBJECT n
+    LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
+    LEFT JOIN ZICNOTEDATA nd ON n.ZNOTEDATA = nd.Z_PK
+    WHERE n.Z_PK = ?
+    AND n.ZMARKEDFORDELETION = 0
+    """
+
+    cursor.execute(query, (note_id,))
     row = cursor.fetchone()
     conn.close()
 

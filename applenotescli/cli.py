@@ -102,10 +102,50 @@ def search(query: str, folder: str | None, title_only: bool):
 
 
 @cli.command()
-@click.argument("title")
-def show(title: str):
-    """Show a note by title."""
-    click.echo(f"Showing note: {title} (not yet implemented)")
+@click.argument("identifier")
+def show(identifier: str):
+    """Show a note's content by ID or title."""
+    try:
+        # Try to parse as ID first
+        try:
+            note_id = int(identifier)
+            note = db.get_note_by_id(note_id)
+        except ValueError:
+            # Not a number, search by title
+            note = db.get_note_by_title(identifier)
+
+        if not note:
+            raise click.ClickException(f"Note not found: {identifier}")
+
+        # Display note metadata
+        title = note.get("title") or "(Untitled)"
+        folder = note.get("folder") or "Notes"
+        modified = format_date(note.get("modified"))
+        created = format_date(note.get("created"))
+
+        click.echo(f"Title: {title}")
+        click.echo(f"Folder: {folder}")
+        click.echo(f"Modified: {modified}")
+        click.echo(f"Created: {created}")
+        click.echo("-" * 40)
+
+        # Extract and display content
+        data = note.get("data")
+        if data:
+            content = db.extract_text_from_note_data(data, for_display=True)
+            if content:
+                click.echo(content)
+            else:
+                click.echo("(No text content)")
+        else:
+            click.echo("(No content)")
+
+    except db.DatabaseNotFoundError as e:
+        raise click.ClickException(str(e))
+    except db.DatabaseLockedError as e:
+        raise click.ClickException(str(e))
+    except db.NotesDBError as e:
+        raise click.ClickException(f"Database error: {e}")
 
 
 @cli.command()
