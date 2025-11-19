@@ -60,14 +60,14 @@ def list_notes() -> list[dict]:
     query = """
     SELECT
         n.Z_PK as id,
-        n.ZTITLE as title,
+        COALESCE(n.ZTITLE, n.ZSNIPPET) as title,
         n.ZIDENTIFIER as identifier,
         n.ZMODIFICATIONDATE as modified,
         n.ZCREATIONDATE as created,
         f.ZTITLE as folder
     FROM ZICCLOUDSYNCINGOBJECT n
     LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
-    WHERE n.ZTITLE IS NOT NULL
+    WHERE n.ZNOTEDATA IS NOT NULL
     AND n.ZMARKEDFORDELETION = 0
     ORDER BY n.ZMODIFICATIONDATE DESC
     """
@@ -112,25 +112,27 @@ def get_note_by_title(title: str) -> dict | None:
 
 
 def search_notes(query: str) -> list[dict]:
-    """Search notes by title (basic LIKE search)."""
+    """Search notes by title with case-insensitive partial matching."""
     conn = get_connection()
     cursor = conn.cursor()
 
     sql = """
     SELECT
         n.Z_PK as id,
-        n.ZTITLE as title,
+        COALESCE(n.ZTITLE, n.ZSNIPPET) as title,
         n.ZIDENTIFIER as identifier,
         n.ZMODIFICATIONDATE as modified,
+        n.ZCREATIONDATE as created,
         f.ZTITLE as folder
     FROM ZICCLOUDSYNCINGOBJECT n
     LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
-    WHERE n.ZTITLE LIKE ?
+    WHERE n.ZNOTEDATA IS NOT NULL
     AND n.ZMARKEDFORDELETION = 0
+    AND (n.ZTITLE LIKE ? COLLATE NOCASE OR n.ZSNIPPET LIKE ? COLLATE NOCASE)
     ORDER BY n.ZMODIFICATIONDATE DESC
     """
 
-    cursor.execute(sql, (f"%{query}%",))
+    cursor.execute(sql, (f"%{query}%", f"%{query}%"))
     results = [dict(row) for row in cursor.fetchall()]
     conn.close()
 

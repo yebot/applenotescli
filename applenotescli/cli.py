@@ -48,12 +48,49 @@ def list(folder: str | None):
         click.echo("-" * 80)
 
         for note in notes:
-            title = note["title"][:38] + ".." if len(note["title"]) > 40 else note["title"]
+            raw_title = note["title"] or "(Untitled)"
+            title = raw_title[:38] + ".." if len(raw_title) > 40 else raw_title
             modified = format_date(note.get("modified"))
             folder_name = note.get("folder") or "Notes"
             click.echo(f"{note['id']:<6} {title:<40} {modified:<18} {folder_name}")
 
         click.echo(f"\nTotal: {len(notes)} notes")
+
+    except db.DatabaseNotFoundError as e:
+        raise click.ClickException(str(e))
+    except db.DatabaseLockedError as e:
+        raise click.ClickException(str(e))
+    except db.NotesDBError as e:
+        raise click.ClickException(f"Database error: {e}")
+
+
+@cli.command()
+@click.argument("query")
+@click.option("--folder", "-f", help="Filter by folder name")
+def search(query: str, folder: str | None):
+    """Search notes by title."""
+    try:
+        notes = db.search_notes(query)
+
+        if folder:
+            notes = [n for n in notes if n.get("folder") == folder]
+
+        if not notes:
+            click.echo(f"No notes found matching '{query}'.")
+            return
+
+        # Display notes in a table format
+        click.echo(f"{'ID':<6} {'Title':<40} {'Modified':<18} {'Folder'}")
+        click.echo("-" * 80)
+
+        for note in notes:
+            raw_title = note["title"] or "(Untitled)"
+            title = raw_title[:38] + ".." if len(raw_title) > 40 else raw_title
+            modified = format_date(note.get("modified"))
+            folder_name = note.get("folder") or "Notes"
+            click.echo(f"{note['id']:<6} {title:<40} {modified:<18} {folder_name}")
+
+        click.echo(f"\nFound: {len(notes)} notes matching '{query}'")
 
     except db.DatabaseNotFoundError as e:
         raise click.ClickException(str(e))
