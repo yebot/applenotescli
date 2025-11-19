@@ -1,5 +1,6 @@
 """SQLite read layer for Apple Notes database."""
 
+import gzip
 import sqlite3
 from pathlib import Path
 
@@ -52,6 +53,48 @@ def get_connection() -> sqlite3.Connection:
         raise NotesDBError(f"Database error: {e}") from e
 
 
+def extract_text_from_note_data(data: bytes) -> str:
+    """Extract plain text from compressed note data.
+
+    Apple Notes stores content as gzip-compressed protobuf.
+    This extracts readable text for searching.
+    """
+    if not data:
+        return ""
+
+    try:
+        decompressed = gzip.decompress(data)
+    except Exception:
+        return ""
+
+    # Extract UTF-8 text sequences from protobuf binary
+    text_parts = []
+    current_text = bytearray()
+
+    for byte in decompressed:
+        # Printable ASCII, whitespace, or UTF-8 continuation bytes
+        if 32 <= byte <= 126 or byte in (9, 10, 13) or byte >= 192:
+            current_text.append(byte)
+        else:
+            if len(current_text) >= 3:
+                try:
+                    decoded = current_text.decode("utf-8", errors="ignore")
+                    text_parts.append(decoded)
+                except Exception:
+                    pass
+            current_text = bytearray()
+
+    # Handle remaining text
+    if len(current_text) >= 3:
+        try:
+            decoded = current_text.decode("utf-8", errors="ignore")
+            text_parts.append(decoded)
+        except Exception:
+            pass
+
+    return " ".join(text_parts)
+
+
 def list_notes() -> list[dict]:
     """List all notes with basic metadata."""
     conn = get_connection()
@@ -60,7 +103,7 @@ def list_notes() -> list[dict]:
     query = """
     SELECT
         n.Z_PK as id,
-        COALESCE(n.ZTITLE, n.ZSNIPPET) as title,
+        COALESCE(n.ZTITLE1, n.ZTITLE, n.ZSNIPPET) as title,
         n.ZIDENTIFIER as identifier,
         n.ZMODIFICATIONDATE as modified,
         n.ZCREATIONDATE as created,
@@ -89,7 +132,7 @@ def get_note_by_title(title: str) -> dict | None:
     query = """
     SELECT
         n.Z_PK as id,
-        n.ZTITLE as title,
+        COALESCE(n.ZTITLE1, n.ZTITLE, n.ZSNIPPET) as title,
         n.ZIDENTIFIER as identifier,
         n.ZMODIFICATIONDATE as modified,
         n.ZCREATIONDATE as created,
@@ -98,11 +141,11 @@ def get_note_by_title(title: str) -> dict | None:
     FROM ZICCLOUDSYNCINGOBJECT n
     LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
     LEFT JOIN ZICNOTEDATA nd ON n.ZNOTEDATA = nd.Z_PK
-    WHERE n.ZTITLE = ?
+    WHERE (n.ZTITLE1 = ? OR n.ZTITLE = ?)
     AND n.ZMARKEDFORDELETION = 0
     """
 
-    cursor.execute(query, (title,))
+    cursor.execute(query, (title, title))
     row = cursor.fetchone()
     conn.close()
 
@@ -111,31 +154,74 @@ def get_note_by_title(title: str) -> dict | None:
     return None
 
 
-def search_notes(query: str) -> list[dict]:
-    """Search notes by title with case-insensitive partial matching."""
+def search_notes(query: str, title_only: bool = False) -> list[dict]:
+    """Search notes by title and optionally body content.
+
+    Args:
+        query: Search term (case-insensitive partial match)
+        title_only: If True, only search title/snippet, not body content
+    """
     conn = get_connection()
     cursor = conn.cursor()
 
-    sql = """
-    SELECT
-        n.Z_PK as id,
-        COALESCE(n.ZTITLE, n.ZSNIPPET) as title,
-        n.ZIDENTIFIER as identifier,
-        n.ZMODIFICATIONDATE as modified,
-        n.ZCREATIONDATE as created,
-        f.ZTITLE as folder
-    FROM ZICCLOUDSYNCINGOBJECT n
-    LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
-    WHERE n.ZNOTEDATA IS NOT NULL
-    AND n.ZMARKEDFORDELETION = 0
-    AND (n.ZTITLE LIKE ? COLLATE NOCASE OR n.ZSNIPPET LIKE ? COLLATE NOCASE)
-    ORDER BY n.ZMODIFICATIONDATE DESC
-    """
+    if title_only:
+        # Fast path: title-only search using SQL
+        sql = """
+        SELECT
+            n.Z_PK as id,
+            COALESCE(n.ZTITLE1, n.ZTITLE, n.ZSNIPPET) as title,
+            n.ZIDENTIFIER as identifier,
+            n.ZMODIFICATIONDATE as modified,
+            n.ZCREATIONDATE as created,
+            f.ZTITLE as folder
+        FROM ZICCLOUDSYNCINGOBJECT n
+        LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
+        WHERE n.ZNOTEDATA IS NOT NULL
+        AND n.ZMARKEDFORDELETION = 0
+        AND (n.ZTITLE1 LIKE ? COLLATE NOCASE OR n.ZTITLE LIKE ? COLLATE NOCASE OR n.ZSNIPPET LIKE ? COLLATE NOCASE)
+        ORDER BY n.ZMODIFICATIONDATE DESC
+        """
+        cursor.execute(sql, (f"%{query}%", f"%{query}%", f"%{query}%"))
+        results = [dict(row) for row in cursor.fetchall()]
+    else:
+        # Full search: title + body content
+        sql = """
+        SELECT
+            n.Z_PK as id,
+            COALESCE(n.ZTITLE1, n.ZTITLE, n.ZSNIPPET) as title,
+            n.ZIDENTIFIER as identifier,
+            n.ZMODIFICATIONDATE as modified,
+            n.ZCREATIONDATE as created,
+            f.ZTITLE as folder,
+            nd.ZDATA as data
+        FROM ZICCLOUDSYNCINGOBJECT n
+        LEFT JOIN ZICCLOUDSYNCINGOBJECT f ON n.ZFOLDER = f.Z_PK
+        LEFT JOIN ZICNOTEDATA nd ON n.ZNOTEDATA = nd.Z_PK
+        WHERE n.ZNOTEDATA IS NOT NULL
+        AND n.ZMARKEDFORDELETION = 0
+        ORDER BY n.ZMODIFICATIONDATE DESC
+        """
+        cursor.execute(sql)
 
-    cursor.execute(sql, (f"%{query}%", f"%{query}%"))
-    results = [dict(row) for row in cursor.fetchall()]
+        query_lower = query.lower()
+        results = []
+        for row in cursor.fetchall():
+            note = dict(row)
+            title = note.get("title") or ""
+            data = note.pop("data", None)  # Remove data from result
+
+            # Check title first
+            if query_lower in title.lower():
+                results.append(note)
+                continue
+
+            # Check body content
+            if data:
+                body_text = extract_text_from_note_data(data)
+                if query_lower in body_text.lower():
+                    results.append(note)
+
     conn.close()
-
     return results
 
 

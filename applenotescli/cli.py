@@ -67,10 +67,11 @@ def list(folder: str | None):
 @cli.command()
 @click.argument("query")
 @click.option("--folder", "-f", help="Filter by folder name")
-def search(query: str, folder: str | None):
-    """Search notes by title."""
+@click.option("--title-only", "-t", is_flag=True, help="Search title only (faster)")
+def search(query: str, folder: str | None, title_only: bool):
+    """Search notes by title and content."""
     try:
-        notes = db.search_notes(query)
+        notes = db.search_notes(query, title_only=title_only)
 
         if folder:
             notes = [n for n in notes if n.get("folder") == folder]
