@@ -12,8 +12,14 @@ def format_date(timestamp: float | None) -> str:
     if timestamp is None:
         return "Unknown"
     # Core Data timestamps are seconds since 2001-01-01
-    dt = datetime(2001, 1, 1) + timedelta(seconds=timestamp)
-    return dt.strftime("%Y-%m-%d %H:%M")
+    # Valid range: 0 to ~50 years in seconds
+    if timestamp < 0 or timestamp > 2000000000:
+        return "Unknown"
+    try:
+        dt = datetime(2001, 1, 1) + timedelta(seconds=timestamp)
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except (OverflowError, OSError):
+        return "Unknown"
 
 
 @click.group()
