@@ -158,3 +158,67 @@ def html_to_plaintext(html: str) -> str:
     # Clean up whitespace
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def html_to_markdown(html: str) -> str:
+    """Convert HTML to Markdown for editing.
+
+    Args:
+        html: HTML content from Apple Notes
+
+    Returns:
+        Markdown formatted text
+    """
+    if not html:
+        return ""
+
+    text = html
+
+    # Remove script and style tags with content
+    text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<style[^>]*>.*?</style>", "", text, flags=re.DOTALL | re.IGNORECASE)
+
+    # Convert headers
+    text = re.sub(r"<h1[^>]*>(.*?)</h1>", r"# \1", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<h2[^>]*>(.*?)</h2>", r"## \1", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<h3[^>]*>(.*?)</h3>", r"### \1", text, flags=re.DOTALL | re.IGNORECASE)
+
+    # Convert inline formatting
+    text = re.sub(r"<b[^>]*>(.*?)</b>", r"**\1**", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<strong[^>]*>(.*?)</strong>", r"**\1**", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<i[^>]*>(.*?)</i>", r"*\1*", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<em[^>]*>(.*?)</em>", r"*\1*", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<code[^>]*>(.*?)</code>", r"`\1`", text, flags=re.DOTALL | re.IGNORECASE)
+
+    # Convert links
+    text = re.sub(r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r"[\2](\1)", text, flags=re.DOTALL | re.IGNORECASE)
+
+    # Convert lists - handle unordered
+    text = re.sub(r"<ul[^>]*>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"</ul>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<ol[^>]*>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"</ol>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<li[^>]*>(.*?)</li>", r"- \1\n", text, flags=re.DOTALL | re.IGNORECASE)
+
+    # Convert line breaks and paragraphs
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</p>", "\n\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<p[^>]*>", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"</div>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"<div[^>]*>", "", text, flags=re.IGNORECASE)
+
+    # Remove all remaining tags
+    text = re.sub(r"<[^>]+>", "", text)
+
+    # Decode common HTML entities
+    text = text.replace("&nbsp;", " ")
+    text = text.replace("&amp;", "&")
+    text = text.replace("&lt;", "<")
+    text = text.replace("&gt;", ">")
+    text = text.replace("&quot;", '"')
+    text = text.replace("&#39;", "'")
+
+    # Clean up whitespace
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    return text.strip()

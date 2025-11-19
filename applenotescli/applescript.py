@@ -109,8 +109,53 @@ def create_note(title: str, body: str, folder: str = "Notes", account: str | Non
     return run_applescript(script)
 
 
+def get_note_modification_date(note_id: str) -> str:
+    """Get the modification date of a note by its ID.
+
+    Args:
+        note_id: The Apple Notes ID (x-coredata:// format)
+
+    Returns:
+        The modification date as a string
+    """
+    note_id_escaped = escape_for_applescript(note_id)
+
+    script = f'''
+    tell application "Notes"
+        set theNote to first note whose id is "{note_id_escaped}"
+        return modification date of theNote as string
+    end tell
+    '''
+
+    return run_applescript(script)
+
+
+def update_note_by_id(note_id: str, new_body: str) -> str:
+    """Update the body of an existing note by ID.
+
+    Args:
+        note_id: The Apple Notes ID (x-coredata:// format)
+        new_body: The new body content (HTML format)
+
+    Returns:
+        Success message
+    """
+    note_id_escaped = escape_for_applescript(note_id)
+    body_escaped = escape_for_applescript(new_body)
+
+    script = f'''
+    tell application "Notes"
+        set theNote to first note whose id is "{note_id_escaped}"
+        set body of theNote to "{body_escaped}"
+        return "updated"
+    end tell
+    '''
+
+    return run_applescript(script)
+
+
 def update_note(title: str, new_body: str) -> str:
-    """Update the body of an existing note."""
+    """Update the body of an existing note by title."""
     title_escaped = escape_for_applescript(title)
     body_escaped = escape_for_applescript(new_body)
 
@@ -118,6 +163,7 @@ def update_note(title: str, new_body: str) -> str:
     tell application "Notes"
         set theNote to first note whose name is "{title_escaped}"
         set body of theNote to "{body_escaped}"
+        return "updated"
     end tell
     '''
 
@@ -173,6 +219,48 @@ def get_note_body(title: str) -> str:
     tell application "Notes"
         set theNote to first note whose name is "{title_escaped}"
         return body of theNote
+    end tell
+    '''
+
+    return run_applescript(script)
+
+
+def get_note_body_by_id(note_id: str) -> str:
+    """Get the HTML body of a note by ID via AppleScript.
+
+    Args:
+        note_id: The Apple Notes ID (x-coredata:// format)
+
+    Returns:
+        The HTML body content
+    """
+    note_id_escaped = escape_for_applescript(note_id)
+
+    script = f'''
+    tell application "Notes"
+        set theNote to first note whose id is "{note_id_escaped}"
+        return body of theNote
+    end tell
+    '''
+
+    return run_applescript(script)
+
+
+def get_note_id_by_title(title: str) -> str:
+    """Get the Apple Notes ID for a note by title.
+
+    Args:
+        title: The note title
+
+    Returns:
+        The Apple Notes ID (x-coredata:// format)
+    """
+    title_escaped = escape_for_applescript(title)
+
+    script = f'''
+    tell application "Notes"
+        set theNote to first note whose name is "{title_escaped}"
+        return id of theNote
     end tell
     '''
 

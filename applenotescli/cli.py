@@ -227,10 +227,106 @@ def create(title: str, body: str | None, folder: str, account: str | None):
 
 
 @cli.command()
-@click.argument("title")
-def edit(title: str):
-    """Edit an existing note."""
-    click.echo(f"Editing note: {title} (not yet implemented)")
+@click.argument("identifier")
+@click.option("--body", "-b", help="New body content (Markdown format)")
+@click.option("--editor", "-e", is_flag=True, help="Open in $EDITOR")
+def edit(identifier: str, body: str | None, editor: bool):
+    """Edit an existing note.
+
+    IDENTIFIER can be a note ID or title.
+    Use --editor to open in $EDITOR, or --body to set content directly.
+    Content can also be piped from stdin.
+    """
+    import os
+    import sys
+    import tempfile
+
+    try:
+        # Find the note - try as ID first
+        try:
+            note_id = int(identifier)
+            note = db.get_note_by_id(note_id)
+        except ValueError:
+            note = db.get_note_by_title(identifier)
+
+        if not note:
+            raise click.ClickException(f"Note not found: {identifier}")
+
+        # Get the Apple Notes ID for this note
+        note_title = note.get("title") or "(Untitled)"
+        try:
+            apple_id = applescript.get_note_id_by_title(note_title)
+        except applescript.AppleScriptExecutionError as e:
+            raise click.ClickException(f"Could not find note in Apple Notes: {e}")
+
+        # Get initial modification date for race condition detection
+        initial_mod_date = applescript.get_note_modification_date(apple_id)
+
+        # Get current content
+        current_html = applescript.get_note_body_by_id(apple_id)
+        current_markdown = convert.html_to_markdown(current_html)
+
+        # Get new content
+        new_markdown = None
+
+        if body is not None:
+            new_markdown = body
+        elif not sys.stdin.isatty():
+            new_markdown = sys.stdin.read()
+        elif editor:
+            # Open in editor
+            editor_cmd = os.environ.get("EDITOR", "vim")
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".md", delete=False) as f:
+                f.write(current_markdown)
+                temp_path = f.name
+
+            try:
+                import subprocess
+                result = subprocess.run([editor_cmd, temp_path])
+                if result.returncode != 0:
+                    raise click.ClickException(f"Editor exited with code {result.returncode}")
+
+                with open(temp_path) as f:
+                    new_markdown = f.read()
+            finally:
+                os.unlink(temp_path)
+        else:
+            raise click.ClickException(
+                "No content provided. Use --body, --editor, or pipe content."
+            )
+
+        # Check if content actually changed
+        if new_markdown.strip() == current_markdown.strip():
+            click.echo("No changes made.")
+            return
+
+        # Check for race condition - modification date changed?
+        current_mod_date = applescript.get_note_modification_date(apple_id)
+        if current_mod_date != initial_mod_date:
+            click.echo(
+                f"Warning: Note was modified externally.\n"
+                f"  Initial: {initial_mod_date}\n"
+                f"  Current: {current_mod_date}\n"
+            )
+            if not click.confirm("Overwrite changes?"):
+                click.echo("Edit cancelled.")
+                return
+
+        # Convert to HTML and update
+        new_html = convert.markdown_to_html(new_markdown)
+        applescript.update_note_by_id(apple_id, new_html)
+        click.echo(f"Updated note '{note_title}'")
+
+    except db.DatabaseNotFoundError as e:
+        raise click.ClickException(str(e))
+    except db.DatabaseLockedError as e:
+        raise click.ClickException(str(e))
+    except db.NotesDBError as e:
+        raise click.ClickException(f"Database error: {e}")
+    except applescript.AppleScriptPermissionError as e:
+        raise click.ClickException(str(e))
+    except applescript.AppleScriptExecutionError as e:
+        raise click.ClickException(str(e))
 
 
 @cli.command()
