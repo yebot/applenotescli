@@ -22,7 +22,7 @@ notes delete "Note Title"
 
 - macOS
 - Python 3.10+
-- Terminal must be granted access to Notes.app (System Preferences > Privacy & Security > Automation)
+- Full Disk Access for Terminal (System Settings > Privacy & Security > Full Disk Access)
 
 ## License
 

@@ -1,6 +1,5 @@
 """SQLite read layer for Apple Notes database."""
 
-import os
 import sqlite3
 from pathlib import Path
 
@@ -10,15 +9,47 @@ NOTES_DB_PATH = Path(
 ).expanduser()
 
 
+class NotesDBError(Exception):
+    """Base exception for Notes database errors."""
+    pass
+
+
+class DatabaseNotFoundError(NotesDBError):
+    """Notes database file not found."""
+    pass
+
+
+class DatabaseLockedError(NotesDBError):
+    """Notes database is locked by another process."""
+    pass
+
+
 def get_connection() -> sqlite3.Connection:
     """Get a read-only connection to the Notes database."""
     if not NOTES_DB_PATH.exists():
-        raise FileNotFoundError(f"Notes database not found at {NOTES_DB_PATH}")
+        raise DatabaseNotFoundError(f"Notes database not found at {NOTES_DB_PATH}")
 
-    # Connect in read-only mode
-    conn = sqlite3.connect(f"file:{NOTES_DB_PATH}?mode=ro", uri=True)
-    conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        # Connect in read-only mode with timeout for locked database
+        conn = sqlite3.connect(
+            f"file:{NOTES_DB_PATH}?mode=ro",
+            uri=True,
+            timeout=5.0
+        )
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.OperationalError as e:
+        error_msg = str(e).lower()
+        if "database is locked" in error_msg:
+            raise DatabaseLockedError(
+                "Notes database is locked. Please close Notes app and try again."
+            ) from e
+        if "unable to open database file" in error_msg:
+            raise NotesDBError(
+                "Cannot access Notes database. Please grant Full Disk Access to Terminal:\n"
+                "System Settings > Privacy & Security > Full Disk Access > Enable Terminal"
+            ) from e
+        raise NotesDBError(f"Database error: {e}") from e
 
 
 def list_notes() -> list[dict]:
